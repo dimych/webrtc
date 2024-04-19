@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>WebRTC Demo</title>
+</head>
+<body>
+<h2>WebRTC Video Call Demo</h2>
+<video id="localVideo" autoplay muted></video>
+<video id="remoteVideo" autoplay></video>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+    const socket = io();
+    const localVideo = document.getElementById('localVideo');
+    const remoteVideo = document.getElementById('remoteVideo');
+
+    navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+        .then(stream => {
+            localVideo.srcObject = stream;
+
+            const peerConnection = new RTCPeerConnection();
+
+            stream.getTracks().forEach(track => {
+                peerConnection.addTrack(track, stream);
+            });
+
+            peerConnection.ontrack = event => {
+                remoteVideo.srcObject = event.streams[0];
+            };
+
+            socket.on('message', message => {
+                if (message.type === 'offer') {
+                    peerConnection.setRemoteDescription(new RTCSessionDescription(message));
+                    peerConnection.createAnswer().then(answer => {
+                        peerConnection.setLocalDescription(answer);
+                        socket.emit('message', answer);
+                    });
+                } else if (message.type === 'answer') {
+                    peerConnection.setRemoteDescription(new RTCSessionDescription(message));
+                } else if (message.candidate) {
+                    peerConnection.addIceCandidate(new RTCIceCandidate(message));
+                }
+            });
+
+            peerConnection.onicecandidate = event => {
+                if (event.candidate) {
+                    socket.emit('message', event.candidate);
+                }
+            };
+
+            peerConnection.createOffer().then(offer => {
+                peerConnection.setLocalDescription(offer);
+                socket.emit('message', offer);
+            });
+        });
+
+    socket.on('connect', () => console.log('Connected to signaling server'));
+</script>
+</body>
+</html>
