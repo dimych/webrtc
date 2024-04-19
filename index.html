@@ -2,68 +2,88 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>WebRTC Demo</title>
+    <title>WebRTC Stream Switching Demo</title>
 </head>
 <body>
-<h2>WebRTC Video Call Demo</h2>
-<video id="localVideo" autoplay muted></video>
-<video id="remoteVideo" autoplay></video>
+<h2>WebRTC Video Switching Demo</h2>
+<video id="localVideo" autoplay muted style="width: 30%;"></video>
+<video id="remoteVideo" autoplay style="width: 30%;"></video>
+<button id="switchBtn">Переключить на экран</button>
 <script src="/socket.io/socket.io.js"></script>
 <script>
     const socket = io();
     const localVideo = document.getElementById('localVideo');
     const remoteVideo = document.getElementById('remoteVideo');
+    const switchBtn = document.getElementById('switchBtn');
+    let localStream;
+    let isScreenSharing = false;
+    const peerConnection = new RTCPeerConnection({
+        iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' }
+        ]
+    });
 
+    navigator.mediaDevices.getUserMedia({ video: true, audio: false }).then(stream => {
+        localStream = stream;
+        localVideo.srcObject = stream;
+        stream.getTracks().forEach(track => peerConnection.addTrack(track, stream));
+    });
 
+    peerConnection.ontrack = event => {
+        remoteVideo.srcObject = event.streams[0];
+    };
 
+    peerConnection.onicecandidate = event => {
+        if (event.candidate) {
+            socket.emit('message', event.candidate);
+        }
+    };
 
-    navigator.mediaDevices.getUserMedia({ video: true, audio: false })
-        .then(stream => {
-            localVideo.srcObject = stream;
-            const configuration = {
-                iceServers: [
-                    { urls: 'stun:stun.l.google.com:19302' }, // Google's public STUN server
-                    // Добавьте TURN сервер, если доступен
-                    // { urls: 'turn:YOUR_TURN_SERVER', username: 'YOUR_USERNAME', credential: 'YOUR_CREDENTIAL' }
-                ]
-            };
-            const peerConnection = new RTCPeerConnection(configuration);
-
-            stream.getTracks().forEach(track => {
-                peerConnection.addTrack(track, stream);
+    socket.on('message', message => {
+        if (message.type === 'offer') {
+            peerConnection.setRemoteDescription(new RTCSessionDescription(message));
+            peerConnection.createAnswer().then(answer => {
+                peerConnection.setLocalDescription(answer);
+                socket.emit('message', answer);
             });
+        } else if (message.type === 'answer') {
+            peerConnection.setRemoteDescription(new RTCSessionDescription(message));
+        } else if (message.candidate) {
+            peerConnection.addIceCandidate(new RTCIceCandidate(message));
+        }
+    });
 
-            peerConnection.ontrack = event => {
-                remoteVideo.srcObject = event.streams[0];
-            };
-
-            socket.on('message', message => {
-                if (message.type === 'offer') {
-                    peerConnection.setRemoteDescription(new RTCSessionDescription(message));
-                    peerConnection.createAnswer().then(answer => {
-                        peerConnection.setLocalDescription(answer);
-                        socket.emit('message', answer);
-                    });
-                } else if (message.type === 'answer') {
-                    peerConnection.setRemoteDescription(new RTCSessionDescription(message));
-                } else if (message.candidate) {
-                    peerConnection.addIceCandidate(new RTCIceCandidate(message));
-                }
+    switchBtn.addEventListener('click', () => {
+        if (!isScreenSharing) {
+            navigator.mediaDevices.getDisplayMedia({ video: true }).then(screenStream => {
+                const screenTrack = screenStream.getVideoTracks()[0];
+                replaceTrack(screenTrack);
+                isScreenSharing = true;
+                switchBtn.innerText = 'Переключить на камеру';
             });
-
-            peerConnection.onicecandidate = event => {
-                if (event.candidate) {
-                    socket.emit('message', event.candidate);
-                }
-            };
-
-            peerConnection.createOffer().then(offer => {
-                peerConnection.setLocalDescription(offer);
-                socket.emit('message', offer);
+        } else {
+            navigator.mediaDevices.getUserMedia({ video: true }).then(cameraStream => {
+                const cameraTrack = cameraStream.getVideoTracks()[0];
+                replaceTrack(cameraTrack);
+                isScreenSharing = false;
+                switchBtn.innerText = 'Переключить на экран';
             });
+        }
+    });
+
+    function replaceTrack(newTrack) {
+        const sender = peerConnection.getSenders().find(s => s.track.kind === newTrack.kind);
+        sender.replaceTrack(newTrack);
+    }
+
+    function createOffer() {
+        peerConnection.createOffer().then(offer => {
+            peerConnection.setLocalDescription(offer);
+            socket.emit('message', offer);
         });
+    }
 
-    socket.on('connect', () => console.log('Connected to signaling server'));
+    createOffer();
 </script>
 </body>
 </html>
