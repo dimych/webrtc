@@ -14,11 +14,20 @@
     const localVideo = document.getElementById('localVideo');
     const remoteVideo = document.getElementById('remoteVideo');
 
+
+
+
     navigator.mediaDevices.getUserMedia({ video: true, audio: false })
         .then(stream => {
             localVideo.srcObject = stream;
-
-            const peerConnection = new RTCPeerConnection();
+            const configuration = {
+                iceServers: [
+                    { urls: 'stun:stun.l.google.com:19302' }, // Google's public STUN server
+                    // Добавьте TURN сервер, если доступен
+                    // { urls: 'turn:YOUR_TURN_SERVER', username: 'YOUR_USERNAME', credential: 'YOUR_CREDENTIAL' }
+                ]
+            };
+            const peerConnection = new RTCPeerConnection(configuration);
 
             stream.getTracks().forEach(track => {
                 peerConnection.addTrack(track, stream);
